@@ -36,9 +36,6 @@ alias du1='du -h --max-depth=1'  # size of each child of the current dir
 alias myip='curl -fsS https://api.ipify.org; echo' # public IP of this VM
 alias reload='exec "$SHELL" -l'  # restart the shell (picks up helper edits)
 
-# mkcd DIR — create DIR and cd into it
-mkcd() { mkdir -p -- "$1" && cd -- "$1" || return; }
-
 # extract FILE — unpack most archive formats
 extract() {
   case "$1" in
@@ -114,7 +111,8 @@ pop_stash() {
 }
 
 gpush () {
-  local current_branch=$(git rev-parse --abbrev-ref HEAD)
+  local current_branch
+  current_branch=$(git rev-parse --abbrev-ref HEAD)
   if [ -n "$current_branch" ]; then
     git push origin "$current_branch"
   else
@@ -133,6 +131,6 @@ alias ...="cd ../.."
 
 # Helpers
 mkcd() {
-  mkdir -p "$1" && cd "$1"
+  mkdir -p "$1" && cd "$1" || return
 }
 

@@ -49,7 +49,7 @@ jobs:
         run: |
           snap() {
             dpkg-query -W -f='${Package} ${Version}\n'
-            sha256sum ~/.bashrc
+            sha256sum ~/.bashrc ~/.vimrc ~/.vim/autoload/plug.vim
             cat ~/.local/opt/nvim/.cloudseed-tag
             stat -c '%n %Y' ~/.local/opt/nvim ~/.local/bin/uv ~/.local/bin/nvim
             git -C ~/.config/nvim rev-parse HEAD
@@ -80,12 +80,14 @@ jobs:
           bash -ic 'uv --version && python --version' 2>/dev/null | tee /tmp/py
           grep -q 'Python 3.12' /tmp/py
           test -d ~/.config/nvim/.git
+          cmp ~/.vimrc dotfiles/vimrc
+          test -d ~/.vim/plugged/vim-polyglot
 
       - name: Piped mode (curl | bash) fetches contents/ from GitHub
         if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
         run: |
           cd /tmp
-          cat "$GITHUB_WORKSPACE/install.sh" | bash -s -- --helpers --yes --ref "$GITHUB_SHA"
+          cat "$GITHUB_WORKSPACE/install.sh" | bash -s -- --helpers --vim --yes --ref "$GITHUB_SHA"
           [ "$(grep -cxF '# >>> cloudseed >>>' ~/.bashrc)" -eq 1 ]
 
       - name: --python override
