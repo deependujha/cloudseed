@@ -49,26 +49,86 @@ extract() {
 }
 
 # ---------------------------------------------------------------- git
-alias g='git'                    # git
-alias gs='git status -sb'        # short status with branch
-alias ga='git add'               # stage paths
-alias gaa='git add --all'        # stage everything
-alias gc='git commit'            # commit (opens editor)
-alias gcm='git commit -m'        # commit with inline message: gcm "msg"
-alias gca='git commit --amend'   # amend the last commit
-alias gp='git push'              # push
-alias gpf='git push --force-with-lease' # safe force-push
-alias gpl='git pull --ff-only'   # pull, refuse to create merge commits
-alias gf='git fetch --all --prune' # fetch every remote, drop stale branches
-alias gd='git diff'              # unstaged changes
-alias gds='git diff --staged'    # staged changes
-alias gco='git checkout'         # checkout branch/paths
-alias gsw='git switch'           # switch branch
-alias gb='git branch'            # list branches
-alias gst='git stash'            # stash changes
-alias gstp='git stash pop'       # pop the latest stash
-alias gl='git log --oneline --graph --decorate -20' # last 20 commits as a graph
-alias gla='git log --oneline --graph --decorate --all' # every branch as a graph
+#!/bin/sh
 
-# groot — cd to the root of the current git repo
-groot() { cd "$(git rev-parse --show-toplevel)" || return; }
+# Git helper commands
+
+alias gc='git add .; git commit'
+alias gcu='git add .; git commit -m "update"'
+alias gcp='git add .; git commit -m "update"; git push'
+alias gcl='git diff'
+alias gsync='git checkout main && (git remote | grep -q "^upstream$" && git pull upstream main || git pull origin main) && git push origin main'
+alias gmsync="git checkout master && git pull upstream master && git push origin master"
+alias gl='git log --oneline'
+alias clean="yes '' | head -n 1000; clear && clear;"
+alias act="source .venv/bin/activate"
+
+
+# Git helper functions
+
+# Check if a git repository is clean
+is_git_clean() {
+    [ -z "$(git status --porcelain)" ]
+}
+
+# Stash changes with a message
+stash_changes() {
+    git stash push -m "$1"
+}
+
+# Clone
+clone() {
+  local upstream_url="$1"
+
+  if [ -z "$upstream_url" ]; then
+    echo "Usage: clone <github-repo-url>"
+    return 1
+  fi
+
+  # Extract repo name safely
+  local repo_name
+  repo_name=$(basename "$upstream_url" .git)
+
+  # Your fork URL
+  local fork_url="git@github.com:deependujha/${repo_name}.git"
+
+  echo "Cloning fork: $fork_url"
+  git clone "$fork_url" || return 1
+
+  cd "$repo_name" || return 1
+
+  echo "Adding upstream: $upstream_url"
+  git remote add upstream "$upstream_url"
+
+  echo
+  git remote -v
+}
+
+# Pop the latest stash
+pop_stash() {
+    git stash pop
+}
+
+gpush () {
+  local current_branch=$(git rev-parse --abbrev-ref HEAD)
+  if [ -n "$current_branch" ]; then
+    git push origin "$current_branch"
+  else
+    echo "Error: Could not determine the current branch name."
+    return 1
+  fi
+}
+
+gstatus () {
+    git status
+}
+
+# Navigation
+alias ..="cd .."
+alias ...="cd ../.."
+
+# Helpers
+mkcd() {
+  mkdir -p "$1" && cd "$1"
+}
+
