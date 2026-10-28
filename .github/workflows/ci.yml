@@ -51,7 +51,7 @@ jobs:
             dpkg-query -W -f='${Package} ${Version}\n'
             sha256sum ~/.bashrc
             cat ~/.local/opt/nvim/.cloudseed-tag
-            stat -c '%n %Y' ~/.local/opt/nvim ~/.local/bin/uv ~/.config/nvim/.git
+            stat -c '%n %Y' ~/.local/opt/nvim ~/.local/bin/uv ~/.local/bin/nvim
             git -C ~/.config/nvim rev-parse HEAD
           }
           declare -f snap > /tmp/snap.sh

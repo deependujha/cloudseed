@@ -339,7 +339,7 @@ on_step_err() {
 
 apt_ensure_lists() {
   # A fresh container has no package lists; installing would just fail.
-  if ! compgen -G '/var/lib/apt/lists/*_Packages' >/dev/null; then
+  if ! compgen -G '/var/lib/apt/lists/*_Packages*' >/dev/null; then
     info "no apt package lists yet — running apt-get update first"
     spin "apt-get update" as_root apt-get update
   fi
