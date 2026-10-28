@@ -1,6 +1,10 @@
 # shellcheck shell=bash
 # cloudseed: general + git shortcuts. Sourced by both bash and zsh.
 # Every alias is commented — delete or tweak freely.
+# Fall back to a known terminal type if this host lacks terminfo for $TERM (e.g. xterm-ghostty)
+if command -v infocmp >/dev/null 2>&1 && ! infocmp "$TERM" >/dev/null 2>&1; then
+  export TERM=xterm-256color
+fi
 
 # ---------------------------------------------------------------- navigation
 alias ..='cd ..'                 # up one directory
