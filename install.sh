@@ -669,7 +669,7 @@ install_tree_sitter_cli() {
     fix_owner "$bin"
     info "installed $("$bin" --version)"
   else
-    warn "prebuilt tree-sitter CLI doesn't run here ($(getconf GNU_LIBC_VERSION 2>/dev/null || echo 'unknown libc'); it needs a newer glibc, e.g. Ubuntu 24.04)."
+    warn "prebuilt tree-sitter CLI doesn't run here ($(getconf GNU_LIBC_VERSION 2>/dev/null || echo 'unknown libc'); it needs a newer glibc)."
     warn "nvim still works, but nvim-treesitter can't compile extra parsers; Neovim's bundled ones still work"
   fi
 }
@@ -697,9 +697,11 @@ install_nvim_config() {
 }
 
 step_nvim() {
+  # Config first: running the nvim binary creates ~/.local/state/nvim, which
+  # would otherwise get "backed up" on a fresh install.
+  install_nvim_config
   install_neovim
   install_tree_sitter_cli
-  install_nvim_config
   if [ "$NVIM_SYNC" = 1 ]; then
     spin "nvim --headless +Lazy! sync (slow)" as_user timeout 1200 \
       "$TARGET_HOME/.local/bin/nvim" --headless "+Lazy! sync" +qa
