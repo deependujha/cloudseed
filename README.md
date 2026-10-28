@@ -37,6 +37,7 @@ When it finishes, run `exec $SHELL` to load the helpers.
 | `--tools` | Install the apt CLI tools (list below) |
 | `--uv` | Install uv and set Python as the default `python` |
 | `--helpers` | Copy `contents/` to `~/shell-helpers` and wire up bash/zsh |
+| `--vim` | Install vim, `dotfiles/vimrc` as `~/.vimrc`, and its vim-plug plugins |
 | `--nvim` | Install the latest stable Neovim and [nvim-config](https://github.com/deependujha/nvim-config) |
 | `--nvim-sync` | Also run a headless `Lazy! sync` (slow). Implies `--nvim` |
 | `--python <ver>` | Python version for `--uv` (default `3.12`) |
@@ -65,6 +66,7 @@ Steps run in this order. Each one is safe to re-run.
 | **tools** | `tree curl wget unzip jq htop tmux ripgrep fd-find fzf build-essential ncdu nvtop ca-certificates`. Only installs what's missing. Symlinks `fd` → `fdfind`. | `~/.local/bin/fd` |
 | **uv** | Official astral.sh installer, with rc-file editing turned off. Then `uv python install <ver> --default`. If that uv can't set a default, cloudseed sets `UV_PYTHON=<ver>` through `python.sh` instead. | `~/.local/bin/{uv,uvx,python*}`, `~/.local/share/uv`, `~/.cloudseed/uv-python` (fallback only) |
 | **helpers** | Copies `contents/` into `~/shell-helpers/`. Adds one managed block to `~/.bashrc`, and to `~/.zshrc` if that file exists or zsh is installed. Backs up each rc file once before the first change. | `~/shell-helpers/`, `~/.bashrc`, `~/.zshrc`, `*.cloudseed.bak` |
+| **vim** | `apt-get install vim`. Copies `dotfiles/vimrc` to `~/.vimrc`; if a different `~/.vimrc` is there, it's moved to `~/.vimrc.bak.<timestamp>` first. Installs [vim-plug](https://github.com/junegunn/vim-plug), then runs a headless `PlugInstall` (vim-polyglot). | `~/.vimrc`, `~/.vim/autoload/plug.vim`, `~/.vim/plugged/` |
 | **nvim** | Latest stable Neovim release tarball from GitHub (not apt). The asset is chosen from the releases API for your arch. Also installs the `tree-sitter` CLI, which nvim-treesitter `main` needs. Its prebuilt binary needs glibc ≥ 2.39, so on 22.04 cloudseed warns and continues without it, and only Neovim's bundled parsers work. Clones nvim-config, or runs `git pull --ff-only` if it's already there. Existing nvim dirs are moved to `*.bak.<timestamp>`, never deleted. Needs `tools` and `git`, and is skipped with a reason if they're missing. | `~/.local/opt/nvim`, `~/.local/bin/{nvim,tree-sitter}`, `~/.config/nvim`, plus backups of `~/.config/nvim`, `~/.local/share/nvim`, `~/.local/state/nvim`, `~/.cache/nvim` |
 
 This is the managed block:
@@ -97,6 +99,8 @@ If the block already exists, cloudseed replaces it in place and never adds a sec
 
 **Any `*.sh` you add to `contents/` loads automatically.** You don't need to edit an rc file. Keep new files POSIX-ish. For anything shell-specific, guard it with `[ -n "$BASH_VERSION" ]` or `[ -n "$ZSH_VERSION" ]`.
 
+Your vim config lives in `dotfiles/vimrc`. Edit it there and re-run `--vim`. Local edits to `~/.vimrc` are backed up and replaced on the next `--vim` run.
+
 To change the apt tools, edit the `TOOLS_PACKAGES` array at the top of `install.sh`.
 
 ## Local development
@@ -122,6 +126,7 @@ It deliberately leaves these in place:
 - apt packages
 - uv and Python
 - Neovim and `~/.config/nvim`
+- `~/.vimrc` and `~/.vim`
 - the `*.bak` backups
 - `~/.cloudseed/` (the log)
 
