@@ -1,0 +1,102 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: shellcheck --version && shellcheck install.sh contents/*.sh
+
+  install:
+    name: install (${{ matrix.image }}, ${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ["ubuntu:22.04", "ubuntu:24.04"]
+        arch: [x86_64, arm64]
+    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    container: ${{ matrix.image }}
+    env:
+      HOME: /root
+    defaults:
+      run:
+        shell: bash -euo pipefail {0}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Refuses to do surprise work (no flags, no TTY)
+        run: |
+          echo "HOME=$HOME user=$(id -un)"
+          if ./install.sh </dev/null; then echo "expected non-zero exit"; exit 1; fi
+
+      - name: --dry-run changes nothing
+        run: |
+          sha256sum ~/.bashrc > /tmp/bashrc.before
+          ./install.sh --all --yes --dry-run
+          sha256sum -c /tmp/bashrc.before
+          test ! -e ~/shell-helpers
+          test ! -e ~/.cloudseed
+
+      - name: First run (--all --yes)
+        run: ./install.sh --all --yes
+
+      - name: Snapshot state
+        run: |
+          snap() {
+            dpkg-query -W -f='${Package} ${Version}\n'
+            sha256sum ~/.bashrc
+            cat ~/.local/opt/nvim/.cloudseed-tag
+            stat -c '%n %Y' ~/.local/opt/nvim ~/.local/bin/uv ~/.config/nvim/.git
+            git -C ~/.config/nvim rev-parse HEAD
+          }
+          declare -f snap > /tmp/snap.sh
+          snap > /tmp/state.1
+
+      - name: Second run is idempotent
+        run: |
+          ./install.sh --all --yes
+          . /tmp/snap.sh
+          snap > /tmp/state.2
+          diff -u /tmp/state.1 /tmp/state.2
+
+      - name: Assertions
+        run: |
+          n="$(grep -cxF '# >>> cloudseed >>>' ~/.bashrc)"
+          [ "$n" -eq 1 ] || { echo "rc block appears $n times"; exit 1; }
+          test -f ~/.bashrc.cloudseed.bak
+
+          ver="$(~/.local/bin/nvim --version | head -n1 | sed 's/^NVIM v//')"
+          echo "nvim $ver"
+          [ "$(printf '%s\n' 0.11.0 "$ver" | sort -V | head -n1)" = 0.11.0 ] || { echo "nvim < 0.11"; exit 1; }
+
+          bash -ic 'type gc' 2>/dev/null | grep -q "git commit"
+          bash -ic 'nvim --version' 2>/dev/null | head -n1
+          bash -ic 'type fd && fd --version' 2>/dev/null
+          bash -ic 'uv --version && python --version' 2>/dev/null | tee /tmp/py
+          grep -q 'Python 3.12' /tmp/py
+          test -d ~/.config/nvim/.git
+
+      - name: Piped mode (curl | bash) fetches contents/ from GitHub
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        run: |
+          cd /tmp
+          cat "$GITHUB_WORKSPACE/install.sh" | bash -s -- --helpers --yes --ref "$GITHUB_SHA"
+          [ "$(grep -cxF '# >>> cloudseed >>>' ~/.bashrc)" -eq 1 ]
+
+      - name: --python override
+        run: |
+          ./install.sh --uv --yes --python 3.13
+          bash -ic 'python --version' 2>/dev/null | grep -q 'Python 3.13'
+
+      - name: --uninstall removes the block and helpers
+        run: |
+          ./install.sh --uninstall --yes
+          if grep -qF 'cloudseed' ~/.bashrc; then echo "block still present"; exit 1; fi
+          test ! -e ~/shell-helpers
+          cmp ~/.bashrc ~/.bashrc.cloudseed.bak
+          test -x ~/.local/bin/nvim
