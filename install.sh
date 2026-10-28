@@ -24,7 +24,7 @@ REPO="deependujha/cloudseed"
 NVIM_CONFIG_URL="https://github.com/deependujha/nvim-config"
 
 # Execution order. `tools` runs before `uv` because uv's installer needs curl.
-STEPS=(update upgrade git tools uv helpers nvim)
+STEPS=(update upgrade git tools uv helpers vim nvim)
 
 declare -A STEP_DESC=(
   [update]="apt-get update"
@@ -33,15 +33,16 @@ declare -A STEP_DESC=(
   [tools]="CLI tools: ripgrep, fd, fzf, jq, tmux, htop, build-essential…"
   [uv]="uv + Python (default), via astral.sh"
   [helpers]="copy contents/ → ~/shell-helpers, wire bash/zsh"
+  [vim]="vim + ~/.vimrc + vim-plug (vim-polyglot)"
   [nvim]="latest Neovim + deependujha/nvim-config (AstroNvim)"
 )
 declare -A STEP_DEFAULT=(
-  [update]=1 [upgrade]=0 [git]=1 [tools]=1 [uv]=1 [helpers]=1 [nvim]=1
+  [update]=1 [upgrade]=0 [git]=1 [tools]=1 [uv]=1 [helpers]=1 [vim]=1 [nvim]=1
 )
 # Steps that need root (directly or via sudo).
-declare -A STEP_NEEDS_ROOT=([update]=1 [upgrade]=1 [git]=1 [tools]=1)
+declare -A STEP_NEEDS_ROOT=([update]=1 [upgrade]=1 [git]=1 [tools]=1 [vim]=1)
 # Commands a step needs before it can run, and which step provides them.
-declare -A STEP_REQUIRES=([uv]="curl" [nvim]="curl tar gzip git rg cc unzip")
+declare -A STEP_REQUIRES=([uv]="curl" [vim]="curl git" [nvim]="curl tar gzip git rg cc unzip")
 declare -A CMD_PROVIDER=(
   [curl]=tools [rg]=tools [cc]=tools [unzip]=tools [git]=git [tar]=base [gzip]=base
 )
@@ -131,6 +132,7 @@ Steps:
   --tools               apt CLI tools (see TOOLS_PACKAGES at the top of the script)
   --uv                  uv + Python ${PYTHON_VERSION} as the default python
   --helpers             copy contents/ to ~/shell-helpers and wire ~/.bashrc / ~/.zshrc
+  --vim                 vim + dotfiles/vimrc as ~/.vimrc + vim-plug plugins
   --nvim                latest stable Neovim + ${NVIM_CONFIG_URL#https://github.com/}
 
 Options:
@@ -449,25 +451,27 @@ step_uv() {
   fi
 }
 
-# Locate contents/: next to the script (local checkout) or downloaded from
-# GitHub codeload for $REF. Prints the directory.
-resolve_contents() {
+# Locate the cloudseed source tree (contents/, dotfiles/): the directory next to
+# the script (local checkout), or the $REF tarball from GitHub codeload,
+# downloaded once per run. Prints the directory.
+resolve_src() {
   if [ -n "$SCRIPT_DIR" ] && [ -d "$SCRIPT_DIR/contents" ]; then
     if [ "$REF_SET" = 1 ]; then info "local checkout found; ignoring --ref $REF"; fi
-    printf '%s' "$SCRIPT_DIR/contents"
+    printf '%s' "$SCRIPT_DIR"
     return 0
   fi
   local url="https://codeload.github.com/${REPO}/tar.gz/${REF}" dir="$WORK_DIR/src"
+  if [ -d "$dir/contents" ]; then printf '%s' "$dir"; return 0; fi
   if [ "$DRY_RUN" = 1 ]; then
-    would "download $url and extract contents/"
-    printf '%s' "$dir/contents"
+    would "download $url and extract it"
+    printf '%s' "$dir"
     return 0
   fi
   mkdir -p "$dir"
   log "+ fetch $url"
   fetch_stdout "$url" | tar -xz -C "$dir" --strip-components=1
   [ -d "$dir/contents" ] || { echo "no contents/ in $REPO@$REF" >&2; return 1; }
-  printf '%s' "$dir/contents"
+  printf '%s' "$dir"
 }
 
 # Rewrite an rc file with our block in place (or appended), printing to stdout.
@@ -527,7 +531,7 @@ rc_files() { # rc files we manage
 
 step_helpers() {
   local src dest="$TARGET_HOME/shell-helpers" n rc
-  src="$(resolve_contents)"
+  src="$(resolve_src)/contents"
   ensure_dir "$dest"
   run cp -R "$src/." "$dest/"
   fix_owner "$dest"
@@ -536,6 +540,38 @@ step_helpers() {
     info "copied contents/ → ~/shell-helpers ($n *.sh files auto-loaded)"
   fi
   while IFS= read -r rc; do wire_rc "$rc"; done < <(rc_files)
+}
+
+step_vim() {
+  local src vimrc="$TARGET_HOME/.vimrc" plug="$TARGET_HOME/.vim/autoload/plug.vim"
+  apt_install vim
+  src="$(resolve_src)/dotfiles/vimrc"
+  if [ -f "$vimrc" ] && cmp -s "$src" "$vimrc"; then
+    info "already up to date: ~/.vimrc"
+  else
+    if [ -e "$vimrc" ]; then
+      run mv "$vimrc" "$vimrc.bak.$TS"
+      [ "$DRY_RUN" = 1 ] || info "backed up ~/.vimrc → ~/.vimrc.bak.$TS"
+    fi
+    run cp "$src" "$vimrc"
+    fix_owner "$vimrc"
+    [ "$DRY_RUN" = 1 ] || info "installed ~/.vimrc"
+  fi
+  if [ -s "$plug" ]; then
+    info "vim-plug already installed"
+  else
+    ensure_dir "$TARGET_HOME/.vim"
+    ensure_dir "$TARGET_HOME/.vim/autoload"
+    run_user curl -fsSLo "$plug" https://raw.githubusercontent.com/junegunn/vim-plug/master/plug.vim
+    [ "$DRY_RUN" = 1 ] || info "installed vim-plug"
+  fi
+  # PlugInstall only fetches plugins that are missing, so re-runs are cheap.
+  # vim -Es can exit non-zero on harmless startup messages; judge by the result.
+  spin "vim +PlugInstall" as_user vim -E -s -u "$vimrc" -i NONE "+PlugInstall --sync" +qa || true
+  if [ "$DRY_RUN" = 0 ]; then
+    [ -d "$TARGET_HOME/.vim/plugged/vim-polyglot" ] || { echo "vim-polyglot wasn't installed" >&2; return 1; }
+    info "vim plugins installed (vim-polyglot)"
+  fi
 }
 
 nvim_arch() {
@@ -566,14 +602,28 @@ install_neovim() {
   arch="$(nvim_arch)" || { echo "unsupported architecture: $(uname -m)" >&2; return 1; }
   [ -r "$opt/.cloudseed-tag" ] && have="$(cat "$opt/.cloudseed-tag")"
 
+  if [ "$DRY_RUN" = 1 ] && ! command -v curl >/dev/null 2>&1; then
+    would "download the latest nvim-linux-${arch}.tar.gz → $opt, symlink $bindir/nvim"
+    return 0
+  fi
+
   if latest="$(nvim_latest "$arch")"; then
     tag="${latest%% *}" url="${latest#* }"
-  elif [ -x "$opt/bin/nvim" ]; then
-    warn "couldn't reach the GitHub releases API; keeping installed Neovim ${have:-}"
-    tag="$have"
   else
-    warn "couldn't reach the GitHub releases API; falling back to the releases/latest URL"
-    tag="unknown" url="https://github.com/neovim/neovim/releases/latest/download/nvim-linux-${arch}.tar.gz"
+    # API unreachable or rate-limited (common on shared CI/cloud IPs): read the
+    # tag from the releases/latest redirect, which isn't rate-limited.
+    tag="$(curl -fsSIL -o /dev/null -w '%{url_effective}' https://github.com/neovim/neovim/releases/latest 2>/dev/null \
+      | sed -n 's|.*/releases/tag/\(v[0-9][^/]*\)$|\1|p' || true)"
+    if [ -n "$tag" ]; then
+      info "releases API unavailable; latest tag $tag via redirect"
+      url="https://github.com/neovim/neovim/releases/download/${tag}/nvim-linux-${arch}.tar.gz"
+    elif [ -x "$opt/bin/nvim" ]; then
+      warn "couldn't reach GitHub; keeping installed Neovim ${have:-}"
+      tag="$have"
+    else
+      echo "couldn't determine the latest Neovim release" >&2
+      return 1
+    fi
   fi
 
   if [ -n "$have" ] && [ "$have" = "$tag" ] && [ -x "$opt/bin/nvim" ]; then
@@ -619,7 +669,8 @@ install_tree_sitter_cli() {
     fix_owner "$bin"
     info "installed $("$bin" --version)"
   else
-    warn "couldn't install a working tree-sitter CLI (treesitter parsers may not compile); continuing"
+    warn "prebuilt tree-sitter CLI doesn't run here ($(getconf GNU_LIBC_VERSION 2>/dev/null || echo 'unknown libc'); it needs a newer glibc)."
+    warn "nvim still works, but nvim-treesitter can't compile extra parsers; Neovim's bundled ones still work"
   fi
 }
 
@@ -646,9 +697,11 @@ install_nvim_config() {
 }
 
 step_nvim() {
+  # Config first: running the nvim binary creates ~/.local/state/nvim, which
+  # would otherwise get "backed up" on a fresh install.
+  install_nvim_config
   install_neovim
   install_tree_sitter_cli
-  install_nvim_config
   if [ "$NVIM_SYNC" = 1 ]; then
     spin "nvim --headless +Lazy! sync (slow)" as_user timeout 1200 \
       "$TARGET_HOME/.local/bin/nvim" --headless "+Lazy! sync" +qa
@@ -839,7 +892,7 @@ uninstall() {
   say "${GREEN}✓${RESET} done"
   say ""
   say "${DIM}Left alone on purpose: apt packages, uv + Python, Neovim (\$HOME/.local/opt/nvim,"
-  say "\$HOME/.local/bin/nvim), \$HOME/.config/nvim, *.cloudseed.bak / *.bak.* backups, \$HOME/.cloudseed/.${RESET}"
+  say "\$HOME/.local/bin/nvim), \$HOME/.config/nvim, \$HOME/.vimrc + \$HOME/.vim, *.cloudseed.bak / *.bak.* backups, \$HOME/.cloudseed/.${RESET}"
   say "Open a new shell (or ${BOLD}exec \$SHELL${RESET}) to drop the loaded helpers."
 }
 
@@ -848,7 +901,7 @@ parse_args() {
   while [ $# -gt 0 ]; do
     case "$1" in
       --all) for s in "${STEPS[@]}"; do SELECTED[$s]=1; done; ANY_STEP_FLAG=1 ;;
-      --update | --upgrade | --git | --uv | --tools | --helpers | --nvim)
+      --update | --upgrade | --git | --uv | --tools | --helpers | --vim | --nvim)
         SELECTED[${1#--}]=1; ANY_STEP_FLAG=1 ;;
       --nvim-sync) NVIM_SYNC=1; SELECTED[nvim]=1; ANY_STEP_FLAG=1 ;;
       --python)
