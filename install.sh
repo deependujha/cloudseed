@@ -568,12 +568,21 @@ install_neovim() {
 
   if latest="$(nvim_latest "$arch")"; then
     tag="${latest%% *}" url="${latest#* }"
-  elif [ -x "$opt/bin/nvim" ]; then
-    warn "couldn't reach the GitHub releases API; keeping installed Neovim ${have:-}"
-    tag="$have"
   else
-    warn "couldn't reach the GitHub releases API; falling back to the releases/latest URL"
-    tag="unknown" url="https://github.com/neovim/neovim/releases/latest/download/nvim-linux-${arch}.tar.gz"
+    # API unreachable or rate-limited (common on shared CI/cloud IPs): read the
+    # tag from the releases/latest redirect, which isn't rate-limited.
+    tag="$(curl -fsSIL -o /dev/null -w '%{url_effective}' https://github.com/neovim/neovim/releases/latest 2>/dev/null \
+      | sed -n 's|.*/releases/tag/\(v[0-9][^/]*\)$|\1|p' || true)"
+    if [ -n "$tag" ]; then
+      info "releases API unavailable; latest tag $tag via redirect"
+      url="https://github.com/neovim/neovim/releases/download/${tag}/nvim-linux-${arch}.tar.gz"
+    elif [ -x "$opt/bin/nvim" ]; then
+      warn "couldn't reach GitHub; keeping installed Neovim ${have:-}"
+      tag="$have"
+    else
+      echo "couldn't determine the latest Neovim release" >&2
+      return 1
+    fi
   fi
 
   if [ -n "$have" ] && [ "$have" = "$tag" ] && [ -x "$opt/bin/nvim" ]; then
@@ -619,7 +628,8 @@ install_tree_sitter_cli() {
     fix_owner "$bin"
     info "installed $("$bin" --version)"
   else
-    warn "couldn't install a working tree-sitter CLI (treesitter parsers may not compile); continuing"
+    warn "prebuilt tree-sitter CLI doesn't run here ($(getconf GNU_LIBC_VERSION 2>/dev/null || echo 'unknown libc'); it needs a newer glibc, e.g. Ubuntu 24.04)."
+    warn "nvim still works, but nvim-treesitter can't compile extra parsers; Neovim's bundled ones still work"
   fi
 }
 
